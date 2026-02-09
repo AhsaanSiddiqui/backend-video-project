@@ -1,0 +1,16 @@
+{
+  "name": "videostreaming",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [
+    "Javascript",
+    "Backend"
+  ],
+  "license": "ISC",
+  "author": "Ahsan Zafar",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  }
+}
