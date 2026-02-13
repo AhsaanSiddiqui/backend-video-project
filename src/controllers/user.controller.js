@@ -2,6 +2,7 @@ import { asyncHandler } from '../utils/asynHandler.js';
 import ApiError from '../utils/ApiError.js';
 import { User } from '../models/user.model.js';
 import uploadOnCloudinary from '../utils/cloudinary.js';
+import { ApiResponse } from '../utils/ApiResponse.js';
 
 const registerUser = asyncHandler(async (req, res) => {
   // res.status(200).json({
@@ -20,13 +21,13 @@ const registerUser = asyncHandler(async (req, res) => {
 
   // step 1
   const { fullName, username, email, password } = req.body;
-  console.log('email: ', email);
+  console.log('Req Body: ', req.body);
 
   // step 2
   // mene ek middleware bnaya hai validation k liye or usy mene route me call krlia hai
 
   // step 3
-  const existingUser = User.findOne({
+  const existingUser = await User.findOne({
     $or: [{ username }, { email }],
   });
   if (existingUser) {
@@ -35,10 +36,21 @@ const registerUser = asyncHandler(async (req, res) => {
 
   // step 4
   const avatarLocalPath = req.files?.avatar[0]?.path;
-  const coverImageLocalPath = req.files?.coverImage[0]?.path;
+  // const coverImageLocalPath = req.files?.coverImage[0]?.path;
+
+  let coverImageLocalPath;
+  if (
+    req.files &&
+    Array.isArray(req.files.coverImage) &&
+    req.files.coverImage.length > 0
+  ) {
+    coverImageLocalPath = req.files.coverImage[0].path;
+  }
   if (!avatarLocalPath) {
     throw new ApiError(400, 'Avatar is required');
   }
+
+  console.log('Req Files: ', req.files);
 
   // step 5
   const avatar = await uploadOnCloudinary(avatarLocalPath);
