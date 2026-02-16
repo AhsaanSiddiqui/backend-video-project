@@ -20,7 +20,6 @@ export const verifyJWT = asyncHandler(async (req, res, next) => {
     );
 
     if (!user) {
-      // NEXT_VID: discuss about frontend
       throw new ApiError(401, 'Invalid Access Token');
     }
 
