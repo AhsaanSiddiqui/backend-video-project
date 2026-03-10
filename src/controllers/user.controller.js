@@ -4,6 +4,7 @@ import { User } from '../models/user.model.js';
 import uploadOnCloudinary from '../utils/cloudinary.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -41,7 +42,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
   // step 1
   const { fullName, username, email, password } = req.body;
-  console.log('Req Body: ', req.body);
+  // console.log('Req Body: ', req.body);
 
   // step 2
   // mene ek middleware bnaya hai validation k liye or usy mene route me call krlia hai
@@ -70,7 +71,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Avatar is required');
   }
 
-  console.log('Req Files: ', req.files);
+  // console.log('Req Files: ', req.files);
 
   // step 5
   const avatar = await uploadOnCloudinary(avatarLocalPath);
@@ -187,7 +188,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, 'User logged out'));
 });
 
-const refreshAccessToken = asyncHandler(async (res, req) => {
+const refreshAccessToken = asyncHandler(async (req, res) => {
   const incomingRefreshToken =
     req.cookies.refreshToken || req.body.refreshToken;
   if (!incomingRefreshToken) {
@@ -214,17 +215,18 @@ const refreshAccessToken = asyncHandler(async (res, req) => {
       secure: true,
     };
 
-    const { accessToken, newRefreshToken } =
-      await generateAccessAndRefreshToken(user._id);
+    const { accessToken, refreshToken } = await generateAccessAndRefreshToken(
+      user._id,
+    );
 
     return res
       .status(200)
       .cookie('accessToken', accessToken, options)
-      .cookie('refreshToken', newRefreshToken, options)
+      .cookie('refreshToken', refreshToken, options)
       .json(
         new ApiResponse(200, 'Access Token refreshed', {
           accessToken,
-          refreshToken: newRefreshToken,
+          refreshToken: refreshToken,
         }),
       );
   } catch (error) {
@@ -255,7 +257,9 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 });
 
 const getCurrentUser = asyncHandler(async (req, res) => {
-  return res.status(200).json(200, req.user, 'User fetched successfully');
+  return res
+    .status(200)
+    .json(new ApiResponse(200, req.user, 'User fetched successfully'));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
@@ -436,23 +440,21 @@ const getWatchHistory = asyncHandler(async (req, res) => {
         as: 'watchHistory',
         pipeline: [
           {
-            $lookup: [
-              {
-                from: 'users',
-                localField: 'owner',
-                foreignField: '_id',
-                as: 'owner',
-                pipeline: [
-                  {
-                    $project: {
-                      fullName: 1,
-                      username: 1,
-                      avatar: 1,
-                    },
+            $lookup: {
+              from: 'users',
+              localField: 'owner',
+              foreignField: '_id',
+              as: 'owner',
+              pipeline: [
+                {
+                  $project: {
+                    fullName: 1,
+                    username: 1,
+                    avatar: 1,
                   },
-                ],
-              },
-            ],
+                },
+              ],
+            },
           },
           {
             $addFields: {
