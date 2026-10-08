@@ -5,26 +5,37 @@ import { ApiResponse } from '../utils/ApiResponse.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import uploadOnCloudinary from '../utils/cloudinary.js';
-import { parse } from 'dotenv';
 
 const getAllVideos = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query;
-  //TODO: get all videos based on query, sort, pagination
-  const pageNumber = parseInt(page);
-  const limitNumber = parseInt(limit);
+  const { page = 1, limit = 10, query, sortBy, sortType, userId, published } = req.query;
+  const pageNumber = parseInt(page, 10);
+  const limitNumber = parseInt(limit, 10);
 
   const filter = {};
-  // search query
+
   if (query) {
     filter.title = { $regex: query, $options: 'i' };
   }
-  // filter by userId/channel
+
+  const isOwnerChannel =
+    userId &&
+    isValidObjectId(userId) &&
+    req.user?._id?.toString() === userId.toString();
+
   if (userId && isValidObjectId(userId)) {
     filter.owner = new mongoose.Types.ObjectId(userId);
   }
-  // sorting
-  let sortOptions = {
-    [sortBy]: sortType === 'asc' ? 1 : -1,
+
+  if (isOwnerChannel) {
+    if (published === 'true') filter.isPublished = true;
+    else if (published === 'false') filter.isPublished = false;
+  } else {
+    filter.isPublished = true;
+  }
+
+  const sortField = sortBy || 'createdAt';
+  const sortOptions = {
+    [sortField]: sortType === 'asc' ? 1 : -1,
   };
 
   const videos = await Video.find(filter)
@@ -36,18 +47,14 @@ const getAllVideos = asyncHandler(async (req, res) => {
   const totalVideos = await Video.countDocuments(filter);
 
   return res.status(200).json(
-    new ApiResponse(
-      200,
-      {
-        videos,
-        pagination: {
-          totalVideos,
-          currentPage: pageNumber,
-          totalPages: Math.ceil(totalVideos / limitNumber),
-        },
+    new ApiResponse(200, 'Videos fetched successfully', {
+      videos,
+      pagination: {
+        totalVideos,
+        currentPage: pageNumber,
+        totalPages: Math.ceil(totalVideos / limitNumber) || 1,
       },
-      'Videos fetched successfully',
-    ),
+    }),
   );
 });
 
@@ -94,11 +101,17 @@ const publishAVideo = asyncHandler(async (req, res) => {
     thumbnail: thumbnailUpload.secure_url,
     duration: videoUpload.duration || '0:00',
     owner: req.user._id,
+    isPublished: true,
   });
+
+  const populatedVideo = await Video.findById(newVideo._id).populate(
+    'owner',
+    'username fullName avatar',
+  );
 
   return res
     .status(201)
-    .json(new ApiResponse(201, newVideo, 'Video published successfully'));
+    .json(new ApiResponse(201, 'Video published successfully', populatedVideo));
 });
 
 const getVideoById = asyncHandler(async (req, res) => {
@@ -125,18 +138,12 @@ const getVideoById = asyncHandler(async (req, res) => {
   }
 
   // 4. Increase views count
-  await Video.findByIdAndUpdate(
-    { _id: videoId },
-    {
-      $inc: { views: 1 },
-    },
-    { new: true },
-  );
+  await Video.findByIdAndUpdate(videoId, { $inc: { views: 1 } }, { new: true });
 
   // 5. Return video response
   return res
     .status(200)
-    .json(new ApiResponse(200, video, 'Video fetched successfully'));
+    .json(new ApiResponse(200, 'Video fetched successfully', video));
 });
 
 const updateVideo = asyncHandler(async (req, res) => {
@@ -184,7 +191,7 @@ const updateVideo = asyncHandler(async (req, res) => {
   // 7. return response
   return res
     .status(200)
-    .json(new ApiResponse(200, video, 'Video updated successfully'));
+    .json(new ApiResponse(200, 'Video updated successfully', video));
 });
 
 const deleteVideo = asyncHandler(async (req, res) => {
@@ -214,7 +221,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
   // 5. return response
   return res
     .status(200)
-    .json(new ApiResponse(200, {}, 'Video deleted successfully'));
+    .json(new ApiResponse(200, 'Video deleted successfully', {}));
 });
 
 const togglePublishStatus = asyncHandler(async (req, res) => {
@@ -249,15 +256,13 @@ const togglePublishStatus = asyncHandler(async (req, res) => {
   );
 
   // 5. Return response
-  return res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        updatedVideo,
-        `Video is now ${updatedVideo.isPublished ? 'Published' : 'Unpublished'}`,
-      ),
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      `Video is now ${updatedVideo.isPublished ? 'Published' : 'Unpublished'}`,
+      updatedVideo,
+    ),
+  );
 });
 
 export {

@@ -5,6 +5,7 @@ import uploadOnCloudinary from '../utils/cloudinary.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 
 const generateAccessAndRefreshToken = async (userId) => {
   try {
@@ -119,15 +120,19 @@ const loginUser = asyncHandler(async (req, res) => {
   // 5. password agr check hogya hai to phr access and refresh Token dono generate krne hnge or dono user ko send krenge.
   // 6. token generate krne k bd in tokens ko cookie k through bhejdo, secure cookie
   const { email, username, password } = req.body;
-  if (!username && !email) {
-    throw new ApiError(400, 'Username or Password is required');
+  if (!username?.trim() && !email?.trim()) {
+    throw new ApiError(400, 'Username or email is required');
   }
-  // if (!(username || email)) {
-  //   throw new ApiError(400, 'Username or Password is required');
-  // }
-  const user = await User.findOne({
-    $or: [{ username }, { email }],
-  });
+
+  const orConditions = [];
+  if (email?.trim()) {
+    orConditions.push({ email: email.trim().toLowerCase() });
+  }
+  if (username?.trim()) {
+    orConditions.push({ username: username.trim().toLowerCase() });
+  }
+
+  const user = await User.findOne({ $or: orConditions });
 
   if (!user) {
     throw new ApiError(400, 'User not found');
@@ -478,6 +483,66 @@ const getWatchHistory = asyncHandler(async (req, res) => {
     );
 });
 
+const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    throw new ApiError(400, 'Email is required');
+  }
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw new ApiError(400, 'User not found');
+  }
+
+  const resetToken = user.generateResetPasswordToken({
+    _id: user._id,
+  });
+  await user.save({ validateBeforeSave: false });
+  const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
+  return res.status(200).json(
+    new ApiResponse(200, 'Reset password token generated successfully', {
+      resetLink: resetUrl,
+    }),
+  );
+});
+
+const resetPassword = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  const { newPassword, confirmPassword } = req.body;
+
+  if (!token || !newPassword || !confirmPassword) {
+    throw new ApiError(400, 'All fields are required');
+  }
+
+  if (newPassword !== confirmPassword) {
+    throw new ApiError(400, 'Passwords do not match');
+  }
+
+  // 🔥 hash incoming token
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+  const user = await User.findOne({
+    resetPasswordToken: hashedToken,
+    resetPasswordExpire: { $gt: Date.now() }, // 🔥 expiry check
+  });
+
+  if (!user) {
+    throw new ApiError(400, 'Token is invalid or expired');
+  }
+
+  // 🔥 update password
+  user.password = newPassword;
+
+  // clear reset fields
+  user.resetPasswordToken = undefined;
+  user.resetPasswordExpire = undefined;
+
+  await user.save();
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, 'Password reset successfully'));
+});
+
 export {
   registerUser,
   loginUser,
@@ -490,4 +555,6 @@ export {
   updateUserCoverImage,
   getUserChannelProfile,
   getWatchHistory,
+  forgotPassword,
+  resetPassword,
 };
