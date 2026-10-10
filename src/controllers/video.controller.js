@@ -1,6 +1,13 @@
 import mongoose, { isValidObjectId } from 'mongoose';
 import { User } from '../models/user.model.js';
 import { Video } from '../models/video.model.js';
+import { Like } from '../models/like.model.js';
+import { Subscription } from '../models/subscription.model.js';
+import { VideoView } from '../models/videoView.model.js';
+import {
+  MAX_VIEWS_PER_USER_PER_DAY,
+  VIEW_COOLDOWN_MS,
+} from '../constants.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -114,6 +121,43 @@ const publishAVideo = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, 'Video published successfully', populatedVideo));
 });
 
+// Returns true if this view should add to the video's view count.
+// A user (owner included) counts at most MAX_VIEWS_PER_USER_PER_DAY times per
+// UTC day, and views within VIEW_COOLDOWN_MS of the last counted one are ignored.
+const recordView = async (videoId, viewerId) => {
+  const now = new Date();
+  const day = now.toISOString().slice(0, 10);
+
+  // Existing record for today: count it only if under the cap and past the cooldown
+  const updated = await VideoView.findOneAndUpdate(
+    {
+      video: videoId,
+      viewer: viewerId,
+      day,
+      count: { $lt: MAX_VIEWS_PER_USER_PER_DAY },
+      lastViewedAt: { $lte: new Date(now.getTime() - VIEW_COOLDOWN_MS) },
+    },
+    { $inc: { count: 1 }, $set: { lastViewedAt: now } },
+  );
+  if (updated) return true;
+
+  // First view today. If the record already exists (capped or in cooldown),
+  // the unique index rejects this and the view is not counted.
+  try {
+    await VideoView.create({
+      video: videoId,
+      viewer: viewerId,
+      day,
+      count: 1,
+      lastViewedAt: now,
+    });
+    return true;
+  } catch (error) {
+    if (error?.code === 11000) return false;
+    throw error;
+  }
+};
+
 const getVideoById = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
   //TODO: get video by id
@@ -137,13 +181,35 @@ const getVideoById = asyncHandler(async (req, res) => {
     throw new ApiError(404, 'Video not found');
   }
 
-  // 4. Increase views count
-  await Video.findByIdAndUpdate(videoId, { $inc: { views: 1 } }, { new: true });
+  // 4. Increase views count (capped per user per day, with a cooldown)
+  const viewCounted = await recordView(video._id, req.user._id);
+  if (viewCounted) {
+    await Video.findByIdAndUpdate(videoId, { $inc: { views: 1 } });
+  }
 
-  // 5. Return video response
-  return res
-    .status(200)
-    .json(new ApiResponse(200, 'Video fetched successfully', video));
+  // 5. Attach like + subscription info for the watch page
+  const ownerId = video.owner?._id;
+  const [likesCount, isLiked, subscribersCount, isSubscribed] =
+    await Promise.all([
+      Like.countDocuments({ video: videoId }),
+      Like.exists({ video: videoId, likedBy: req.user._id }),
+      ownerId ? Subscription.countDocuments({ channel: ownerId }) : 0,
+      ownerId
+        ? Subscription.exists({ channel: ownerId, subscriber: req.user._id })
+        : null,
+    ]);
+
+  // 6. Return video response
+  return res.status(200).json(
+    new ApiResponse(200, 'Video fetched successfully', {
+      ...video.toObject(),
+      views: video.views + (viewCounted ? 1 : 0),
+      likesCount,
+      isLiked: Boolean(isLiked),
+      subscribersCount,
+      isSubscribed: Boolean(isSubscribed),
+    }),
+  );
 });
 
 const updateVideo = asyncHandler(async (req, res) => {
