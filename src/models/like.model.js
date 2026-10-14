@@ -18,6 +18,12 @@ const likeSchema = new Schema(
       type: Schema.Types.ObjectId,
       ref: 'Tweet',
     },
+    // Only videos can be disliked. Older documents have no type and count as likes.
+    type: {
+      type: String,
+      enum: ['like', 'dislike'],
+      default: 'like',
+    },
   },
   { timestamps: true },
 );

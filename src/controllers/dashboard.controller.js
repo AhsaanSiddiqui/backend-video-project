@@ -37,6 +37,9 @@ const getChannelStats = asyncHandler(async (req, res) => {
   // Total likes on all videos of this user
   const likesResult = await Like.aggregate([
     {
+      $match: { video: { $ne: null }, type: { $ne: 'dislike' } },
+    },
+    {
       $lookup: {
         from: 'videos',
         localField: 'video',

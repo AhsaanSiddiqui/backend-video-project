@@ -189,10 +189,11 @@ const getVideoById = asyncHandler(async (req, res) => {
 
   // 5. Attach like + subscription info for the watch page
   const ownerId = video.owner?._id;
-  const [likesCount, isLiked, subscribersCount, isSubscribed] =
+  const [likesCount, dislikesCount, myReaction, subscribersCount, isSubscribed] =
     await Promise.all([
-      Like.countDocuments({ video: videoId }),
-      Like.exists({ video: videoId, likedBy: req.user._id }),
+      Like.countDocuments({ video: videoId, type: { $ne: 'dislike' } }),
+      Like.countDocuments({ video: videoId, type: 'dislike' }),
+      Like.findOne({ video: videoId, likedBy: req.user._id }).select('type'),
       ownerId ? Subscription.countDocuments({ channel: ownerId }) : 0,
       ownerId
         ? Subscription.exists({ channel: ownerId, subscriber: req.user._id })
@@ -205,7 +206,9 @@ const getVideoById = asyncHandler(async (req, res) => {
       ...video.toObject(),
       views: video.views + (viewCounted ? 1 : 0),
       likesCount,
-      isLiked: Boolean(isLiked),
+      dislikesCount,
+      isLiked: Boolean(myReaction) && myReaction.type !== 'dislike',
+      isDisliked: myReaction?.type === 'dislike',
       subscribersCount,
       isSubscribed: Boolean(isSubscribed),
     }),

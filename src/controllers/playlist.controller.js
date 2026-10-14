@@ -4,15 +4,27 @@ import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
-const createPlaylist = asyncHandler(async (req, res) => {
-  const { name, description } = req.body;
+// Loads a playlist and makes sure the current user owns it
+const findOwnedPlaylist = async (playlistId, userId) => {
+  const playlist = await PlayList.findById(playlistId);
+  if (!playlist) {
+    throw new ApiError(404, 'Playlist not found');
+  }
+  if (playlist.owner?.toString() !== userId.toString()) {
+    throw new ApiError(403, 'You can only change your own playlists');
+  }
+  return playlist;
+};
 
-  if (!name) {
+const createPlaylist = asyncHandler(async (req, res) => {
+  const { name, description = '' } = req.body;
+
+  if (!name?.trim()) {
     throw new ApiError(400, 'Playlist name is required');
   }
 
   const playlist = await PlayList.create({
-    name,
+    name: name.trim(),
     description,
     owner: req.user._id,
     videos: [],
@@ -64,19 +76,13 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid ID');
   }
 
-  const playlist = await PlayList.findById(playlistId);
+  const playlist = await findOwnedPlaylist(playlistId, req.user._id);
 
-  if (!playlist) {
-    throw new ApiError(404, 'Playlist not found');
+  // adding a video that's already there is a no-op
+  if (!playlist.videos.some((id) => id.toString() === videoId)) {
+    playlist.videos.push(videoId);
+    await playlist.save();
   }
-
-  // prevent duplicate
-  if (playlist.videos.includes(videoId)) {
-    throw new ApiError(400, 'Video already in playlist');
-  }
-
-  playlist.videos.push(videoId);
-  await playlist.save();
 
   return res
     .status(200)
@@ -90,6 +96,8 @@ const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid ID');
   }
 
+  await findOwnedPlaylist(playlistId, req.user._id);
+
   const playlist = await PlayList.findByIdAndUpdate(
     playlistId,
     {
@@ -97,10 +105,6 @@ const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
     },
     { new: true },
   );
-
-  if (!playlist) {
-    throw new ApiError(404, 'Playlist not found');
-  }
 
   return res
     .status(200)
@@ -114,11 +118,8 @@ const deletePlaylist = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid playlist ID');
   }
 
-  const playlist = await PlayList.findByIdAndDelete(playlistId);
-
-  if (!playlist) {
-    throw new ApiError(404, 'Playlist not found');
-  }
+  await findOwnedPlaylist(playlistId, req.user._id);
+  await PlayList.findByIdAndDelete(playlistId);
 
   return res
     .status(200)
@@ -133,6 +134,8 @@ const updatePlaylist = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid playlist ID');
   }
 
+  await findOwnedPlaylist(playlistId, req.user._id);
+
   const playlist = await PlayList.findByIdAndUpdate(
     playlistId,
     {
@@ -143,10 +146,6 @@ const updatePlaylist = asyncHandler(async (req, res) => {
     },
     { new: true },
   );
-
-  if (!playlist) {
-    throw new ApiError(404, 'Playlist not found');
-  }
 
   return res
     .status(200)

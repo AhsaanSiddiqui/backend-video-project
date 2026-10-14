@@ -1,5 +1,6 @@
 import mongoose, { isValidObjectId } from 'mongoose';
 import { Comment } from '../models/comment.model.js';
+import { Like } from '../models/like.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -23,11 +24,31 @@ const getVideoComments = asyncHandler(async (req, res) => {
 
   const totalComments = await Comment.countDocuments({ video: videoId });
 
+  // Like count + whether the current user liked each comment on this page
+  const commentIds = comments.map((c) => c._id);
+  const [likeCounts, myLikes] = await Promise.all([
+    Like.aggregate([
+      { $match: { comment: { $in: commentIds } } },
+      { $group: { _id: '$comment', count: { $sum: 1 } } },
+    ]),
+    Like.find({ comment: { $in: commentIds }, likedBy: req.user._id }).select(
+      'comment',
+    ),
+  ]);
+  const likesByComment = new Map(
+    likeCounts.map((l) => [l._id.toString(), l.count]),
+  );
+  const likedByMe = new Set(myLikes.map((l) => l.comment.toString()));
+
   return res.status(200).json(
     new ApiResponse(
       200,
       {
-        comments,
+        comments: comments.map((c) => ({
+          ...c.toObject(),
+          likesCount: likesByComment.get(c._id.toString()) || 0,
+          isLiked: likedByMe.has(c._id.toString()),
+        })),
         totalComments,
         currentPage: Number(page),
         totalPages: Math.ceil(totalComments / limit),
@@ -115,6 +136,7 @@ const deleteComment = asyncHandler(async (req, res) => {
   }
 
   await Comment.findByIdAndDelete(commentId);
+  await Like.deleteMany({ comment: commentId });
 
   return res
     .status(200)

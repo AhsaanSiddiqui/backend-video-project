@@ -4,33 +4,52 @@ import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 
-const toggleVideoLike = asyncHandler(async (req, res) => {
+// Likes and dislikes on a video are mutually exclusive: choosing the same
+// reaction again removes it, choosing the other one switches to it.
+const toggleVideoReaction = async (req, res, type) => {
   const { videoId } = req.params;
 
   if (!isValidObjectId(videoId)) {
     throw new ApiError(400, 'Invalid video ID');
   }
 
-  const existingLike = await Like.findOne({
+  const existing = await Like.findOne({
     likedBy: req.user._id,
     video: videoId,
   });
 
-  if (existingLike) {
-    // Unlike
-    await Like.findByIdAndDelete(existingLike._id);
-
-    return res.status(200).json(new ApiResponse(200, {}, 'Video unliked'));
+  let reaction = type;
+  if (existing && (existing.type || 'like') === type) {
+    await Like.findByIdAndDelete(existing._id);
+    reaction = null;
+  } else if (existing) {
+    existing.type = type;
+    await existing.save();
+  } else {
+    await Like.create({ likedBy: req.user._id, video: videoId, type });
   }
 
-  // Like
-  await Like.create({
-    likedBy: req.user._id,
-    video: videoId,
-  });
+  const [likesCount, dislikesCount] = await Promise.all([
+    Like.countDocuments({ video: videoId, type: { $ne: 'dislike' } }),
+    Like.countDocuments({ video: videoId, type: 'dislike' }),
+  ]);
 
-  return res.status(200).json(new ApiResponse(200, {}, 'Video liked'));
-});
+  const message = reaction
+    ? `Video ${type === 'like' ? 'liked' : 'disliked'}`
+    : `Video ${type === 'like' ? 'unliked' : 'undisliked'}`;
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { reaction, likesCount, dislikesCount }, message));
+};
+
+const toggleVideoLike = asyncHandler((req, res) =>
+  toggleVideoReaction(req, res, 'like'),
+);
+
+const toggleVideoDislike = asyncHandler((req, res) =>
+  toggleVideoReaction(req, res, 'dislike'),
+);
 
 const toggleCommentLike = asyncHandler(async (req, res) => {
   const { commentId } = req.params;
@@ -88,6 +107,7 @@ const getLikedVideos = asyncHandler(async (req, res) => {
   const likes = await Like.find({
     likedBy: req.user._id,
     video: { $ne: null },
+    type: { $ne: 'dislike' },
   }).populate({
     path: 'video',
     populate: {
@@ -105,4 +125,10 @@ const getLikedVideos = asyncHandler(async (req, res) => {
     );
 });
 
-export { toggleCommentLike, toggleTweetLike, toggleVideoLike, getLikedVideos };
+export {
+  toggleCommentLike,
+  toggleTweetLike,
+  toggleVideoLike,
+  toggleVideoDislike,
+  getLikedVideos,
+};
