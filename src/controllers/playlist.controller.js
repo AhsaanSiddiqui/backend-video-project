@@ -1,5 +1,6 @@
-import mongoose, { isValidObjectId } from 'mongoose';
+import { isValidObjectId } from 'mongoose';
 import { PlayList } from '../models/playlist.model.js';
+import { Video } from '../models/video.model.js';
 import { ApiError } from '../utils/ApiError.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -32,7 +33,7 @@ const createPlaylist = asyncHandler(async (req, res) => {
 
   return res
     .status(201)
-    .json(new ApiResponse(201, playlist, 'Playlist created successfully'));
+    .json(new ApiResponse(201, 'Playlist created successfully', playlist));
 });
 
 const getUserPlaylists = asyncHandler(async (req, res) => {
@@ -46,7 +47,7 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, playlists, 'User playlists fetched'));
+    .json(new ApiResponse(200, 'User playlists fetched', playlists));
 });
 
 const getPlaylistById = asyncHandler(async (req, res) => {
@@ -66,7 +67,7 @@ const getPlaylistById = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, playlist, 'Playlist fetched successfully'));
+    .json(new ApiResponse(200, 'Playlist fetched successfully', playlist));
 });
 
 const addVideoToPlaylist = asyncHandler(async (req, res) => {
@@ -76,17 +77,26 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
     throw new ApiError(400, 'Invalid ID');
   }
 
+  const video = await Video.findById(videoId).select('_id');
+  if (!video) {
+    throw new ApiError(404, 'Video not found');
+  }
+
   const playlist = await findOwnedPlaylist(playlistId, req.user._id);
 
-  // adding a video that's already there is a no-op
-  if (!playlist.videos.some((id) => id.toString() === videoId)) {
+  if (!Array.isArray(playlist.videos)) {
+    playlist.videos = [];
+  }
+
+  const alreadySaved = playlist.videos.some((id) => id?.toString() === videoId);
+  if (!alreadySaved) {
     playlist.videos.push(videoId);
     await playlist.save();
   }
 
   return res
     .status(200)
-    .json(new ApiResponse(200, playlist, 'Video added to playlist'));
+    .json(new ApiResponse(200, 'Video added to playlist', playlist));
 });
 
 const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
@@ -108,7 +118,7 @@ const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, playlist, 'Video removed from playlist'));
+    .json(new ApiResponse(200, 'Video removed from playlist', playlist));
 });
 
 const deletePlaylist = asyncHandler(async (req, res) => {
@@ -123,7 +133,7 @@ const deletePlaylist = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, {}, 'Playlist deleted successfully'));
+    .json(new ApiResponse(200, 'Playlist deleted successfully', {}));
 });
 
 const updatePlaylist = asyncHandler(async (req, res) => {
@@ -149,7 +159,7 @@ const updatePlaylist = asyncHandler(async (req, res) => {
 
   return res
     .status(200)
-    .json(new ApiResponse(200, playlist, 'Playlist updated successfully'));
+    .json(new ApiResponse(200, 'Playlist updated successfully', playlist));
 });
 
 export {
