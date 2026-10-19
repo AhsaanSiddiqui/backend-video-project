@@ -43,7 +43,7 @@ router
 router
   .route('/cover-image')
   .patch(verifyJWT, upload.single('coverImage'), updateUserCoverImage);
-router.route('/c/:username').get(getUserChannelProfile);
+router.route('/c/:username').get(verifyJWT, getUserChannelProfile);
 router.route('/history').get(verifyJWT, getWatchHistory);
 router.route('/forgot-password').post(forgotPassword);
 router.route('/reset-password/:token').post(resetPassword);

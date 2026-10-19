@@ -406,13 +406,23 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
           $size: '$subscribedTo',
         },
         isSubscribed: {
-          $cond: {
-            if: {
-              $in: [req.user?._id, '$subscribers.subscriber'],
+          $gt: [
+            {
+              $size: {
+                $filter: {
+                  input: '$subscribers',
+                  as: 'sub',
+                  cond: {
+                    $eq: [
+                      '$$sub.subscriber',
+                      new mongoose.Types.ObjectId(req.user._id),
+                    ],
+                  },
+                },
+              },
             },
-            then: true,
-            else: false,
-          },
+            0,
+          ],
         },
       },
     },
@@ -437,7 +447,7 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(
-      new ApiResponse(200, channel[0], 'Channel profile fetched successfully'),
+      new ApiResponse(200, 'Channel profile fetched successfully', channel[0]),
     );
 });
 
