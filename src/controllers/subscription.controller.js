@@ -75,8 +75,8 @@ const getUserChannelSubscribers = asyncHandler(async (req, res) => {
   return res.status(200).json(
     new ApiResponse(
       200,
-      subscribers.map((s) => s.subscriber), // send array of subscriber users
       'Subscribers fetched successfully',
+      subscribers.map((subscription) => subscription.subscriber).filter(Boolean),
     ),
   );
 });
@@ -99,16 +99,15 @@ const getSubscribedChannels = asyncHandler(async (req, res) => {
   });
 
   // Map channels from the subscriptions
-  const subscribedChannels = subscriptions.map((sub) => sub.channel);
+  const subscribedChannels = subscriptions
+    .map((subscription) => subscription.channel)
+    .filter(Boolean);
 
-  return res.status(200).json(
-    new ApiResponse({
-      success: true,
-      statusCode: 200,
-      message: 'Subscribed channels fetched successfully',
-      data: subscribedChannels,
-    }),
-  );
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, 'Subscribed channels fetched successfully', subscribedChannels),
+    );
 });
 
 export { toggleSubscription, getUserChannelSubscribers, getSubscribedChannels };

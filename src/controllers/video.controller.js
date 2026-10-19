@@ -187,6 +187,14 @@ const getVideoById = asyncHandler(async (req, res) => {
     await Video.findByIdAndUpdate(videoId, { $inc: { views: 1 } });
   }
 
+  // Most recent watch stays at the front, without duplicate entries.
+  await User.findByIdAndUpdate(req.user._id, {
+    $pull: { watchHistory: video._id },
+  });
+  await User.findByIdAndUpdate(req.user._id, {
+    $push: { watchHistory: { $each: [video._id], $position: 0 } },
+  });
+
   // 5. Attach like + subscription info for the watch page
   const ownerId = video.owner?._id;
   const [likesCount, dislikesCount, myReaction, subscribersCount, isSubscribed] =

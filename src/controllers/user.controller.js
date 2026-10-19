@@ -1,6 +1,7 @@
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { ApiError } from '../utils/ApiError.js';
 import { User } from '../models/user.model.js';
+import { Video } from '../models/video.model.js';
 import uploadOnCloudinary from '../utils/cloudinary.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import jwt from 'jsonwebtoken';
@@ -190,7 +191,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     .status(200)
     .clearCookie('accessToken', options)
     .clearCookie('refreshToken', options)
-    .json(new ApiResponse(200, {}, 'User logged out'));
+    .json(new ApiResponse(200, 'User logged out', {}));
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -264,26 +265,36 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 const getCurrentUser = asyncHandler(async (req, res) => {
   return res
     .status(200)
-    .json(new ApiResponse(200, req.user, 'User fetched successfully'));
+    .json(new ApiResponse(200, 'User fetched successfully', req.user));
 });
 
 const updateAccountDetails = asyncHandler(async (req, res) => {
   const { fullName, email } = req.body;
-  if (!fullName || !email) {
+  if (!fullName?.trim() || !email?.trim()) {
     throw new ApiError(400, 'Full Name and Email are required');
   }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailTaken = await User.findOne({
+    email: normalizedEmail,
+    _id: { $ne: req.user._id },
+  }).select('_id');
+  if (emailTaken) {
+    throw new ApiError(409, 'Email is already in use');
+  }
+
   const user = await User.findByIdAndUpdate(
     req.user._id,
     {
       $set: {
-        fullName,
-        email,
+        fullName: fullName.trim(),
+        email: normalizedEmail,
       },
     },
     {
       new: true,
     },
-  ).select('-password');
+  ).select('-password -refreshToken');
 
   return res
     .status(200)
@@ -319,7 +330,7 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
     {
       new: true,
     },
-  ).select('-password');
+  ).select('-password -refreshToken');
   return res
     .status(200)
     .json(new ApiResponse(200, 'Avatar updated successfully', user));
@@ -353,7 +364,7 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     {
       new: true,
     },
-  ).select('-password');
+  ).select('-password -refreshToken');
   return res
     .status(200)
     .json(new ApiResponse(200, 'Cover image updated successfully', user));
@@ -431,56 +442,19 @@ const getUserChannelProfile = asyncHandler(async (req, res) => {
 });
 
 const getWatchHistory = asyncHandler(async (req, res) => {
-  const user = await User.aggregate([
-    {
-      $match: {
-        _id: new mongoose.Types.ObjectId(req.user._id),
-      },
-    },
-    {
-      $lookup: {
-        from: 'videos',
-        localField: 'watchHistory',
-        foreignField: '_id',
-        as: 'watchHistory',
-        pipeline: [
-          {
-            $lookup: {
-              from: 'users',
-              localField: 'owner',
-              foreignField: '_id',
-              as: 'owner',
-              pipeline: [
-                {
-                  $project: {
-                    fullName: 1,
-                    username: 1,
-                    avatar: 1,
-                  },
-                },
-              ],
-            },
-          },
-          {
-            $addFields: {
-              owner: {
-                $first: '$owner',
-              },
-            },
-          },
-        ],
-      },
-    },
-  ]);
+  const user = await User.findById(req.user._id).select('watchHistory');
+  const ids = user?.watchHistory ?? [];
+
+  const videos = await Video.find({ _id: { $in: ids } }).populate(
+    'owner',
+    'username fullName avatar',
+  );
+  const byId = new Map(videos.map((video) => [video._id.toString(), video]));
+  const ordered = ids.map((id) => byId.get(id.toString())).filter(Boolean);
+
   return res
     .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        user[0].watchHistory,
-        'Watch history fetched successfully',
-      ),
-    );
+    .json(new ApiResponse(200, 'Watch history fetched successfully', ordered));
 });
 
 const forgotPassword = asyncHandler(async (req, res) => {

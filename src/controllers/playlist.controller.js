@@ -155,12 +155,16 @@ const updatePlaylist = asyncHandler(async (req, res) => {
 
   await findOwnedPlaylist(playlistId, req.user._id);
 
+  if (name !== undefined && !String(name).trim()) {
+    throw new ApiError(400, 'Playlist name is required');
+  }
+
   const playlist = await PlayList.findByIdAndUpdate(
     playlistId,
     {
       $set: {
-        name,
-        description,
+        ...(name !== undefined ? { name: String(name).trim() } : {}),
+        ...(description !== undefined ? { description } : {}),
       },
     },
     { new: true },

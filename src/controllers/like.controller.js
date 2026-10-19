@@ -91,16 +91,21 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
 
   if (existingLike) {
     await Like.findByIdAndDelete(existingLike._id);
-
-    return res.status(200).json(new ApiResponse(200, {}, 'Tweet unliked'));
+  } else {
+    await Like.create({
+      likedBy: req.user._id,
+      tweet: tweetId,
+    });
   }
 
-  await Like.create({
-    likedBy: req.user._id,
-    tweet: tweetId,
-  });
+  const likes = await Like.countDocuments({ tweet: tweetId });
 
-  return res.status(200).json(new ApiResponse(200, {}, 'Tweet liked'));
+  return res.status(200).json(
+    new ApiResponse(200, existingLike ? 'Tweet unliked' : 'Tweet liked', {
+      isLiked: !existingLike,
+      likes,
+    }),
+  );
 });
 
 const getLikedVideos = asyncHandler(async (req, res) => {
@@ -114,15 +119,13 @@ const getLikedVideos = asyncHandler(async (req, res) => {
       path: 'owner',
       select: 'username fullName avatar',
     },
-  });
+  }).sort({ createdAt: -1 });
 
-  const likedVideos = likes.map((like) => like.video);
+  const likedVideos = likes.map((like) => like.video).filter(Boolean);
 
   return res
     .status(200)
-    .json(
-      new ApiResponse(200, likedVideos, 'Liked videos fetched successfully'),
-    );
+    .json(new ApiResponse(200, 'Liked videos fetched successfully', likedVideos));
 });
 
 export {
